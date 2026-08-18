@@ -1,0 +1,407 @@
+#!/usr/bin/env bash
+
+VERSION="0.1.0"
+
+OCSMGR_COLOR_HEADER_BG="{{colors.primary.default.hex}}"
+OCSMGR_COLOR_HEADER_FG="{{colors.on_primary.default.hex}}"
+OCSMGR_COLOR_SELECTED_BG="{{colors.primary.default.hex}}"
+OCSMGR_COLOR_SELECTED_FG="{{colors.on_primary.default.hex}}"
+OCSMGR_COLOR_LEGEND_FG="{{colors.on_surface_variant.default.hex}}"
+OCSMGR_COLOR_STATUS_BG="{{colors.surface_container.default.hex}}"
+OCSMGR_COLOR_STATUS_FG="{{colors.on_surface.default.hex}}"
+
+COLOR_HEADER=7
+COLOR_SELECTED=7
+COLOR_LEGEND="2;37"
+COLOR_STATUS=7
+
+hex_sgr() {
+  local pre=$1 h=$2 r g b
+  [[ $h == \#* && ${#h} == 7 ]] || return 1
+  h=${h#\#}
+  r=$((16#${h:0:2}))
+  g=$((16#${h:2:2}))
+  b=$((16#${h:4:2}))
+  printf '%s;2;%d;%d;%d' "$pre" "$r" "$g" "$b"
+}
+
+load_colors() {
+  if [[ -n $NO_COLOR ]]; then
+    COLOR_HEADER=0
+    COLOR_SELECTED=0
+    COLOR_LEGEND=0
+    COLOR_STATUS=0
+    return
+  fi
+  local bg fg
+  bg=$(hex_sgr 48 "${OCSMGR_COLOR_HEADER_BG:-}") || bg=
+  fg=$(hex_sgr 38 "${OCSMGR_COLOR_HEADER_FG:-}") || fg=
+  [[ -n $bg && -n $fg ]] && COLOR_HEADER="$bg;$fg"
+  bg=$(hex_sgr 48 "${OCSMGR_COLOR_SELECTED_BG:-}") || bg=
+  fg=$(hex_sgr 38 "${OCSMGR_COLOR_SELECTED_FG:-}") || fg=
+  [[ -n $bg && -n $fg ]] && COLOR_SELECTED="$bg;$fg"
+  fg=$(hex_sgr 38 "${OCSMGR_COLOR_LEGEND_FG:-}") || fg=
+  [[ -n $fg ]] && COLOR_LEGEND=$fg
+  bg=$(hex_sgr 48 "${OCSMGR_COLOR_STATUS_BG:-}") || bg=
+  fg=$(hex_sgr 38 "${OCSMGR_COLOR_STATUS_FG:-}") || fg=
+  [[ -n $bg && -n $fg ]] && COLOR_STATUS="$bg;$fg"
+}
+
+command -v jq >/dev/null 2>&1 || { printf '%s\n' "ocsmgr: jq is required" >&2; exit 1; }
+command -v opencode >/dev/null 2>&1 || { printf '%s\n' "ocsmgr: opencode not found in PATH" >&2; exit 1; }
+if [[ ! -t 0 ]]; then
+  printf '%s\n' "ocsmgr: needs an interactive terminal" >&2
+  exit 1
+fi
+
+declare -a sessions_id sessions_title sessions_updated sessions_dir sessions_proj
+declare -a filtered
+declare -i cur=0
+search=""
+state=normal
+status_msg=""
+KEY=""
+
+_stty=$(stty -g 2>/dev/null)
+
+cleanup() {
+  trap - EXIT INT TERM HUP
+  stty "$_stty" 2>/dev/null
+  printf '\e[0m\e[?25h\e[?1049l'
+  tput cnorm 2>/dev/null
+  printf '\n'
+}
+
+shorten_home() {
+  local d=$1
+  [[ $d == "$HOME"* ]] && d="~${d#$HOME}"
+  printf '%s' "$d"
+}
+
+truncate_str() {
+  local s=$1 n=$2
+  (( n <= 0 )) && return
+  if (( ${#s} <= n )); then
+    printf '%s' "$s"
+  else
+    printf '%s…' "${s:0:n-1}"
+  fi
+}
+
+rel_time() {
+  local ms=$1 now diff
+  now=$(date +%s)
+  diff=$(( now - ms / 1000 ))
+  if (( diff < 0 )); then
+    printf '%s' "now"
+  elif (( diff < 60 )); then
+    printf '%ds' "$diff"
+  elif (( diff < 3600 )); then
+    printf '%dm ago' "$(( diff / 60 ))"
+  elif (( diff < 86400 )); then
+    printf '%dh ago' "$(( diff / 3600 ))"
+  elif (( diff < 604800 )); then
+    printf '%dd ago' "$(( diff / 86400 ))"
+  else
+    date -d "@$(( ms / 1000 ))" +%m-%d 2>/dev/null || printf '%s' "old"
+  fi
+}
+
+load_sessions() {
+  local data
+  data=$(opencode session list --format json 2>/dev/null) || return 1
+  sessions_id=()
+  sessions_title=()
+  sessions_updated=()
+  sessions_dir=()
+  sessions_proj=()
+  local id title updated dir proj
+  while IFS=$'\t' read -r id title updated dir proj; do
+    sessions_id+=("$id")
+    sessions_title+=("$title")
+    sessions_updated+=("$updated")
+    sessions_dir+=("$dir")
+    sessions_proj+=("$proj")
+  done < <(jq -r '.[] | [.id, ((.title // "untitled") | gsub("[\t\n]"; " ")), (.updated // 0), (.directory // ""), (.projectId // "")] | @tsv' <<<"$data")
+  return 0
+}
+
+apply_filter() {
+  local prev_id=$1
+  [[ -z $prev_id ]] && prev_id=${sessions_id[${filtered[$cur]:-0}]}
+  filtered=()
+  if [[ -n $search ]]; then
+    local p=${search,,} i t d
+    for i in "${!sessions_id[@]}"; do
+      t=${sessions_title[$i],,}
+      d=${sessions_dir[$i],,}
+      [[ $t == *"$p"* || $d == *"$p"* ]] && filtered+=("$i")
+    done
+  else
+    local i
+    for i in "${!sessions_id[@]}"; do filtered+=("$i"); done
+  fi
+  cur=0
+  local n=${#filtered[@]}
+  if (( n > 0 )) && [[ -n $prev_id ]]; then
+    local i
+    for i in "${!filtered[@]}"; do
+      if [[ ${sessions_id[${filtered[$i]}]} == "$prev_id" ]]; then
+        cur=$i
+        break
+      fi
+    done
+  fi
+  (( n > 0 && cur >= n )) && cur=$(( n - 1 ))
+}
+
+refresh() {
+  local prev_id=${sessions_id[${filtered[$cur]:-0}]}
+  if load_sessions; then
+    apply_filter "$prev_id"
+  else
+    status_msg="failed to load sessions"
+  fi
+}
+
+move_cursor() {
+  local n=${#filtered[@]}
+  (( n == 0 )) && return
+  local d=$1
+  cur=$(( cur + d ))
+  (( cur < 0 )) && cur=$(( n - 1 ))
+  (( cur >= n )) && cur=0
+}
+
+status_line() {
+  local n=${#filtered[@]}
+  (( n == 0 )) && { printf 'no sessions'; return; }
+  local real=${filtered[$cur]}
+  printf '%s…  %s  %s' "${sessions_id[$real]:0:14}" "$(shorten_home "${sessions_dir[$real]}")" "${sessions_proj[$real]}"
+}
+
+build_row() {
+  local idx=$1 real=$2 COLS=$3
+  local time_w=9 dir_w=11 title_w
+  if (( COLS < 60 )); then
+    dir_w=$(( COLS - 46 ))
+  fi
+  (( dir_w < 4 )) && dir_w=4
+  title_w=$(( COLS - 19 - time_w - dir_w ))
+  (( title_w < 8 )) && title_w=8
+  local marker='  '
+  (( idx == cur )) && marker='>>'
+  local title=${sessions_title[$real]}
+  local time dir
+  time=$(rel_time "${sessions_updated[$real]}")
+  dir=$(shorten_home "${sessions_dir[$real]}")
+  printf '%s %3d %-*s %9s %-*s' \
+    "$marker" $(( idx + 1 )) \
+    "$title_w" "$(truncate_str "$title" "$title_w")" \
+    "$time" \
+    "$dir_w" "$(truncate_str "$dir" "$dir_w")"
+}
+
+draw() {
+  local LINES COLS
+  LINES=$(tput lines 2>/dev/null)
+  COLS=$(tput cols 2>/dev/null)
+  [[ $LINES =~ ^[0-9]+$ ]] || LINES=24
+  [[ $COLS =~ ^[0-9]+$ ]] || COLS=80
+
+  local n=${#filtered[@]}
+  printf '\e[H'
+  local total=${#sessions_id[@]}
+  local hdr="ocsmgr — opencode session manager  (${total} session(s))"
+  printf '\e[%sm%-*s\e[0m\e[K\n' "$COLOR_HEADER" "$COLS" "$(truncate_str "$hdr" $((COLS - 1)))"
+
+  local maxrows=$(( LINES - 3 ))
+  (( maxrows < 1 )) && maxrows=1
+  local top=0
+  if (( n > maxrows )); then
+    top=$(( cur - maxrows / 2 ))
+    (( top < 0 )) && top=0
+    (( top > n - maxrows )) && top=$(( n - maxrows ))
+  fi
+  local end=$(( top + maxrows ))
+  (( end > n )) && end=$n
+
+  local i real line
+  for (( i = top; i < end; i++ )); do
+    real=${filtered[$i]}
+    line=$(build_row "$i" "$real" "$COLS")
+    line=$(truncate_str "$line" "$COLS")
+    if (( i == cur )); then
+      printf '\e[%sm%-*s\e[0m\e[K\n' "$COLOR_SELECTED" "$COLS" "$line"
+    else
+      printf '%-*s\e[K\n' "$COLS" "$line"
+    fi
+  done
+  for (( i = end; i < top + maxrows; i++ )); do
+    printf '\e[K\n'
+  done
+
+  local legend
+  if [[ $state == search ]]; then
+    legend="searching: /$search   j/k move   Enter lock   Esc cancel"
+  else
+    legend="j/k move   / search   n/N match   d delete   r refresh   q quit"
+  fi
+  printf '\e[%sm%s\e[0m\e[K\n' "$COLOR_LEGEND" "$(truncate_str "$legend" $((COLS - 1)))"
+
+  local status
+  if [[ $state == search ]]; then
+    status="/$search — ${n} match(es)"
+  elif [[ -n $status_msg ]]; then
+    status=$status_msg
+  else
+    status=$(status_line)
+  fi
+  printf '\e[%sm %s\e[0m\e[K' "$COLOR_STATUS" "$(truncate_str "$status" $((COLS - 2)))"
+}
+
+read_key() {
+  local k
+  IFS= read -rsn1 k || { KEY='quit'; return; }
+  case $k in
+    $'\x1b')
+      local k1 k2
+      IFS= read -rsn1 -t 0.1 k1
+      if [[ -z $k1 ]]; then
+        KEY='esc'
+        return
+      fi
+      if [[ $k1 == '[' ]]; then
+        IFS= read -rsn1 -t 0.1 k2
+        case $k2 in
+          A) KEY='up' ;;
+          B) KEY='down' ;;
+          C) KEY='right' ;;
+          D) KEY='left' ;;
+          H) KEY='home' ;;
+          F) KEY='end' ;;
+          *) KEY="seq:$k2" ;;
+        esac
+      elif [[ $k1 == 'O' ]]; then
+        IFS= read -rsn1 -t 0.1 k2
+        case $k2 in
+          H) KEY='home' ;;
+          F) KEY='end' ;;
+          *) KEY="seq:$k1$k2" ;;
+        esac
+      else
+        KEY="alt:$k1"
+      fi
+      ;;
+    $'\x7f'|$'\x08') KEY='backspace' ;;
+    $'\r'|$'\n'|'') KEY='enter' ;;
+    $'\x03'|$'\x04') KEY='quit' ;;
+    *)
+      KEY="char:$k"
+      local b extra ch out
+      b=$(LC_ALL=C printf '%d' "'$k")
+      extra=0
+      (( b >= 0xF0 )) && extra=3
+      (( b >= 0xE0 )) && extra=2
+      (( b >= 0xC0 )) && extra=1
+      out=$k
+      local i
+      for (( i = 0; i < extra; i++ )); do
+        IFS= read -rsn1 ch
+        out+=$ch
+      done
+      KEY="char:$out"
+      ;;
+  esac
+}
+
+delete_current() {
+  local n=${#filtered[@]}
+  (( n == 0 )) && return
+  local real=${filtered[$cur]}
+  local id=${sessions_id[$real]}
+  local title=${sessions_title[$real]}
+  while :; do
+    status_msg="Delete '${title}' [y/N]? "
+    draw
+    read_key
+    case $KEY in
+      char:y|char:Y|enter)
+        status_msg="Deleting ${id:0:12}…"
+        draw
+        if opencode session delete "$id" >/dev/null 2>&1; then
+          status_msg="Deleted ${id:0:12}…"
+          refresh
+        else
+          status_msg="Delete failed"
+        fi
+        return
+        ;;
+      *)
+        status_msg=""
+        return
+        ;;
+    esac
+  done
+}
+
+handle_normal_key() {
+  case $KEY in
+    char:q|char:Q) exit 0 ;;
+    char:j|char:J|down) move_cursor 1 ;;
+    char:k|char:K|up) move_cursor -1 ;;
+    char:g|home) cur=0 ;;
+    char:G|end) (( ${#filtered[@]} > 0 )) && cur=$(( ${#filtered[@]} - 1 )) ;;
+    char:n) move_cursor 1 ;;
+    char:N) move_cursor -1 ;;
+    char:r|char:R) load_colors; refresh ;;
+    char:d) delete_current ;;
+    char:/) search=""; state=search ;;
+    esc) [[ -n $search ]] && { search=""; apply_filter ""; } ;;
+    seq:*|alt:*|char:*) ;;
+  esac
+}
+
+handle_search_key() {
+  case $KEY in
+    esc) search=""; state=normal; apply_filter "" ;;
+    enter) state=normal ;;
+    backspace)
+      search=${search%?}
+      apply_filter ""
+      ;;
+    char:/) search="" ;;
+    char:j|char:J|down) move_cursor 1 ;;
+    char:k|char:K|up) move_cursor -1 ;;
+    char:*)
+      search+=${KEY#char:}
+      apply_filter ""
+      ;;
+    seq:*|alt:*) ;;
+  esac
+}
+
+main() {
+  printf '\e[?1049h\e[?25l'
+  stty -icanon -echo
+  trap cleanup EXIT INT TERM HUP
+
+  if ! load_sessions; then
+    status_msg="warning: could not list sessions"
+  fi
+  load_colors
+  apply_filter ""
+
+  while :; do
+    draw
+    read_key
+    [[ $KEY == quit ]] && break
+    if [[ $state == search ]]; then
+      handle_search_key
+    else
+      handle_normal_key
+    fi
+  done
+}
+
+main "$@"

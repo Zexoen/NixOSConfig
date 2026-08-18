@@ -1,0 +1,72 @@
+// Window rules let you adjust behavior for individual windows.
+// Find more information on the wiki:
+// https://yalter.github.io/niri/Configuration:-Window-Rules
+
+// Floating Window
+window-rule {
+    // This app-id regular expression will work for both:
+    // - host Firefox (app-id is "firefox")
+    // - Flatpak Firefox (app-id is "org.mozilla.firefox")
+    match app-id=r#"firefox$"# title="^Picture-in-Picture$"
+    match app-id="nm-connection-editor"
+    match app-id="steam" title="Friends List"
+    match app-id="flameshot"
+    match app-id="com.gabm.satty"
+    match app-id="imv"
+    match app-id="org.gnome.clocks" title="Clocks"
+    match app-id="fcitx" title="Fcitx5 Input Window"
+    match app-id="org.gnome.FileRoller"
+    match title="图片查看器"
+    match title="群聊的聊天记录"
+    match title="聊天记录"
+    match title="日历"
+    match title="重命名"
+    match app-id="btrfs-assistant"
+    match app-id="markpix"
+    match title="Steam 设置"
+    match app-id="localsend"
+    match title="termfilechooser"
+    open-floating true
+}
+
+window-rule {
+    match app-id="org.pulseaudio.pavucontrol" title="Volume Control"
+    match app-id="kitty" title="bluetui"
+    default-column-width { fixed 800; }
+    default-window-height { fixed 600; }
+    open-floating true
+}
+
+window-rule {
+  match app-id="kitty" title=r#"^btop$"#
+  min-width 1200
+}
+
+
+// Example: block out two password managers from screen capture.
+// (This example rule is commented out with a "/-" in front.)
+/-window-rule {
+    match app-id=r#"^org\.keepassxc\.KeePassXC$"#
+    match app-id=r#"^org\.gnome\.World\.Secrets$"#
+
+    block-out-from "screen-capture"
+
+    // Use this instead if you want them visible on third-party screenshot tools.
+    // block-out-from "screencast"
+}
+
+
+// Global Window rule 
+window-rule {
+    geometry-corner-radius 12
+    clip-to-geometry true
+    opacity 0.99
+    draw-border-with-background false
+}
+
+window-rule {
+  match app-id=r#".*Minecraft*"#
+  match app-id="kazumi"
+  match app-id="firefox"
+  opacity 1.0
+}

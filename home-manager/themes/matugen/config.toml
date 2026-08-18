@@ -1,0 +1,45 @@
+[config]
+
+[templates.fcitx5-highlight]
+input_path = '~/.config/matugen/templates/fcitx5-highlight.svg'
+output_path = '~/.local/share/fcitx5/themes/kwinblur-mellow-matugen/highlight.svg'
+
+[templates.fctix5-theme]
+input_path = '~/.config/matugen/templates/fcitx5-theme.conf'
+output_path = '~/.local/share/fcitx5/themes/kwinblur-mellow-matugen/theme.conf'
+post_hook = 'systemctl --user restart fcitx5-daemon.service'
+
+[templates.yazi]
+input_path = '~/.config/matugen/templates/yazi-theme.toml'
+output_path = '~/.config/yazi/theme.toml'
+post_hook = 'ya emit-to 0 app:theme'
+
+[templates.btop]
+input_path = '~/.config/matugen/templates/btop.theme'
+output_path = '~/.config/btop/themes/matugen.theme'
+post_hook = 'pkill -SIGUSR1 btop && pkill -SIGUSR2 btop &'
+
+[templates.wshowkeys]
+input_path = '~/.config/matugen/templates/showkeys.sh'
+output_path = '~/.config/niri/scripts/showkeys.sh'
+post_hook = 'pkill wshowkeys && sleep .5 && ~/.config/niri/scripts/showkeys.sh & disown'
+
+[templates.neovim-colors]
+input_path = '~/.config/matugen/templates/neovim-colors.lua'
+output_path = '~/.config/nvim/colors/base46-matugen.lua'
+
+[templates.ocsmgr]
+input_path = '~/.config/matugen/templates/ocsmgr'
+output_path = '~/.local/bin/ocsmgr'
+
+# [templates.matugen-colors]
+# input_path = '~/.config/matugen/templates/colors.lua'
+# output_path = '~/.config/matugen/colors.lua'
+
+[templates.mpv]
+input_path = '~/.config/matugen/templates/mpv-modernz.conf'
+output_path = '~/.config/mpv/script-opts/modernz.conf'
+
+# [templates.opencode]
+# input_path = '~/.config/matugen/templates/opencode.json'
+# output_path = '~/.config/opencode/themes/matugen.json'
