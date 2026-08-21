@@ -128,7 +128,10 @@
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users.zexoen = {
     isNormalUser = true;
-    extraGroups = [ "wheel" ]; # Enable ‘sudo’ for the user.
+    extraGroups = [
+      "wheel"
+      "networkmanager"
+    ]; # Enable ‘sudo’ for the user.
     openssh.authorizedKeys.keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGSO5t6WyJODki3cPkjvs+wg5/Sl5BYuNfyT2j/GnHCm zexoen@ArchLinux"
     ];

@@ -29,7 +29,10 @@
     # komikku
     hmcl
     pavucontrol
+    qtscrcpy
   ];
+
+  programs.chromium.enable = true;
 
   programs.firefox = {
     enable = true; # 安装并启用 Firefox
