@@ -18,7 +18,11 @@
       inputs.nixpkgs.follows = "nixpkgs"; # optional
     };
     agenix = {
-      url = "github:yaxitech/ragenix";
+      url = "github:ryantm/agenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nur = {
+      url = "github:nix-community/NUR";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -30,6 +34,7 @@
       nixpkgs-stable,
       home-manager,
       agenix,
+      nur,
       ...
     }@inputs:
     let
@@ -44,7 +49,12 @@
     {
       nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
         specialArgs = {
-          inherit inputs pkgs-stable confDir;
+          inherit
+            inputs
+            pkgs-stable
+            confDir
+            nur
+            ;
         };
 
         modules = [
@@ -58,7 +68,14 @@
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
-            home-manager.extraSpecialArgs = { inherit inputs pkgs-stable confDir; };
+            home-manager.extraSpecialArgs = {
+              inherit
+                inputs
+                pkgs-stable
+                confDir
+                nur
+                ;
+            };
             home-manager.users.zexoen = {
               imports = [
                 ./home-manager

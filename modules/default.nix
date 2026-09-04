@@ -3,5 +3,6 @@ _: {
     ./keyd.nix
     ./network.nix
     ./firmware.nix
+    ./nur.nix
   ];
 }
